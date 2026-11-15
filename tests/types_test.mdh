@@ -1,0 +1,103 @@
+// Types are validators, JSON Schemas and sample generators at once.
+
+type Priority = "low" | "medium" | "high"
+
+/// A support ticket.
+type Ticket {
+  /// Short headline.
+  title: string where it.len() > 0
+  priority: Priority
+  tags: [string] = []
+  assignee: string?
+  estimate?: float
+}
+
+type Tree {
+  value: int
+  children: [Tree]
+}
+
+type Percent = float where it >= 0 and it <= 100
+
+test "is checks a value against a type" {
+  assert "low" is Priority
+  assert not ("urgent" is Priority)
+  assert {title: "x", priority: "high"} is Ticket
+  assert not ({title: "", priority: "high"} is Ticket)
+  assert 5 is int and 5 is float and not (5.5 is int)
+  assert [1, 2] is [int]
+  assert null is string?
+  assert 50 is Percent and 150 is not Percent
+}
+
+test "validation fills defaults and optionals" {
+  let t = Ticket.validate({title: "Crash", priority: "low"})
+  assert t.tags == []
+  assert t.assignee == null
+  assert t.estimate == null
+}
+
+test "validation errors name the exact path" {
+  let e = assert_throws(() => Ticket.validate({title: "x", priority: "urgent"}), "ValidationError")
+  assert e.message.contains("$.priority")
+  let e2 = assert_throws(() => Tree.validate({value: 1, children: [{value: "two", children: []}]}))
+  assert e2.message.contains("$.children[0].value")
+  assert Ticket.errors({title: "ok", priority: "low"}) == null
+}
+
+test "as coerces loosely typed data the way model output needs" {
+  let t = {title: "x", priority: "HIGH", estimate: "2.5", extra: true} as Ticket
+  assert t.priority == "high"
+  assert t.estimate == 2.5
+  assert not t.has("extra")
+  assert ("42" as int) == 42
+  assert int("7") + 1 == 8
+}
+
+test "types produce JSON Schema" {
+  let s = Ticket.schema()
+  assert s.type == "object"
+  assert s.required == ["title", "priority"]
+  assert s.properties.priority.enum == ["low", "medium", "high"]
+  assert s.properties.title.description.contains("Short headline.")
+  assert s.properties.title.description.contains("it.len() > 0")
+  assert s.description == "A support ticket."
+  assert s.additionalProperties == false
+}
+
+test "recursive types use $defs" {
+  let s = Tree.schema()
+  assert s["$ref"] == "#/$defs/Tree"
+  assert s["$defs"].Tree.properties.children.items["$ref"] == "#/$defs/Tree"
+  assert {value: 1, children: [{value: 2, children: []}]} is Tree
+}
+
+test "parse pulls JSON out of messy model text" {
+  let raw = "Sure! Here you go:\n```json\n\{\"title\": \"Login fails\", \"priority\": \"high\"\}\n```\nAnything else?"
+  let t = Ticket.parse(raw)
+  assert t.title == "Login fails"
+  assert Priority.parse("  High ") == "high"
+  assert_throws(() => Ticket.parse("no json here"), "ValidationError")
+}
+
+test "samples always satisfy their own type" {
+  assert Ticket.sample() is Ticket
+  assert Tree.sample() is Tree
+  assert Percent.sample() is Percent
+}
+
+test "inline types work anywhere a type is expected" {
+  let Pair = {left: int, right: int}
+  assert schema([string]).type == "array"
+  assert schema(Pair).required == ["left", "right"]
+  let p: {x: int, y: int} = {x: 1, y: 2}
+  assert p.x == 1
+  assert_throws(() => { let q: [int] = [1, "2"]; q })
+}
+
+test "typed bindings accept ints where floats are expected" {
+  let ratio: float = 1
+  assert ratio == 1
+  let m: map<int> = {a: 1, b: 2}
+  assert m.values().sum() == 3
+}

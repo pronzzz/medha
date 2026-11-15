@@ -1,0 +1,23 @@
+{
+  "name": "medha-language",
+  "displayName": "Medha",
+  "description": "Syntax highlighting for the Medha programming language (.mdh)",
+  "version": "0.1.0",
+  "publisher": "medha",
+  "license": "MIT",
+  "engines": { "vscode": "^1.70.0" },
+  "categories": ["Programming Languages"],
+  "contributes": {
+    "languages": [
+      {
+        "id": "medha",
+        "aliases": ["Medha", "medha"],
+        "extensions": [".mdh"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      { "language": "medha", "scopeName": "source.medha", "path": "./syntaxes/medha.tmLanguage.json" }
+    ]
+  }
+}

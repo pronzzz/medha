@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "medha"
+version = "0.1.0"
+description = "Medha: a programming language for AI programs. Types are schemas, prompts are functions, agents are loops, and every model call is testable offline."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Pranav Dwivedi" }]
+keywords = ["programming-language", "llm", "ai", "agents", "prompt-engineering", "structured-output", "interpreter"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development :: Interpreters",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/pronzzz/medha"
+Documentation = "https://github.com/pronzzz/medha/blob/main/docs/LANGUAGE.md"
+Issues = "https://github.com/pronzzz/medha/issues"
+Changelog = "https://github.com/pronzzz/medha/blob/main/CHANGELOG.md"
+
+[project.scripts]
+medha = "medha.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

@@ -1,0 +1,45 @@
+// Retrieval-augmented answering in about thirty lines.
+//
+//   medha run examples/rag.mdh --dry-run
+//   (live runs need an embedding model, e.g. openai:text-embedding-3-small or ollama:nomic-embed-text)
+
+model claude = "anthropic:claude-opus-5-5"
+model embedder = "openai:text-embedding-3-small"
+
+let docs = [
+  "Refunds are available within 30 days of delivery for unused items.",
+  "Standard shipping takes 3 to 5 business days. Express takes 1 to 2.",
+  "Our support team is available Monday to Friday, 9am to 6pm IST.",
+  "Gift cards never expire and cannot be exchanged for cash.",
+]
+
+type Answer {
+  answer: string
+  /// Indexes of the documents the answer relies on.
+  sources: [int]
+  confident: bool
+}
+
+prompt answer(question: string, context: [string]) -> Answer using claude {
+  system "Answer only from the numbered documents. Say so if they do not contain the answer."
+  for i, doc in context { "[{i}] {doc}" }
+  "Question: {question}"
+}
+
+fn top_k(question: string, k: int) -> [string] {
+  let q = embed(question, embedder)
+  let vectors = embed(docs, embedder)
+  docs
+    |> zip(vectors)
+    |> sort(key: pair => cosine(q, pair[1]), desc: true)
+    |> take(k)
+    |> map(pair => pair[0])
+}
+
+fn main(args) {
+  let question = args.first() ?? "How long do I have to return something?"
+  let context = top_k(question, 2)
+  let result = answer(question, context)
+  print(result.answer)
+  print("sources: {result.sources.map(i => context[i] ?? "?")}")
+}

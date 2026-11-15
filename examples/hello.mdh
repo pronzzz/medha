@@ -1,0 +1,22 @@
+// The smallest useful Medha program: one model, one typed prompt.
+//
+//   medha run examples/hello.mdh --dry-run      (no API key needed)
+//   medha run examples/hello.mdh Ada            (needs ANTHROPIC_API_KEY)
+
+model claude = "anthropic:claude-opus-5-5"
+
+type Greeting {
+  /// One friendly sentence addressed to the person.
+  text: string
+  language: "english" | "hindi" | "spanish"
+}
+
+prompt greet(name: string) -> Greeting using claude {
+  "Greet {name} warmly, in a language of your choice."
+}
+
+fn main(args) {
+  let who = args.first() ?? "world"
+  let g = greet(who)
+  print("[{g.language}] {g.text}")
+}

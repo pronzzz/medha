@@ -1,0 +1,50 @@
+// Classify a batch of reviews concurrently, then aggregate with ordinary code.
+//
+//   medha run examples/sentiment.mdh --dry-run --trace
+
+model claude = "anthropic:claude-haiku-5-5" { effort: "low" }
+
+type Sentiment = "positive" | "negative" | "neutral"
+
+type Review {
+  sentiment: Sentiment
+  /// 1 is furious, 5 is delighted.
+  score: int where it >= 1 and it <= 5
+  /// At most three short topic labels.
+  topics: [string] where it.len() <= 3
+  /// Only set when the customer needs a human to follow up.
+  follow_up: string?
+}
+
+prompt analyze(text: string) -> Review using claude with { cache: true } {
+  system "You are a careful analyst of customer reviews."
+  example "Arrived broken, support never replied." -> {
+    sentiment: "negative", score: 1, topics: ["damage", "support"], follow_up: "Replace the item"
+  }
+  "Review: {text}"
+}
+
+let reviews = [
+  "Battery lasts two days, love it.",
+  "The strap snapped within a week. I want a refund.",
+  "It is fine. Does what the box says.",
+  "Setup took an hour and the app kept crashing.",
+]
+
+fn main() {
+  let results = reviews |> pmap(analyze, workers: 4)
+
+  for i, r in results {
+    let flag = match r.sentiment {
+      "positive" -> "+"
+      "negative" -> "-"
+      "neutral" -> "."
+    }
+    print("{flag} {r.score}/5  {reviews[i].truncate(40)}  {r.topics}")
+  }
+
+  let average = results.map(r => r.score).sum() / results.len()
+  let urgent = results.filter(r => r.follow_up != null)
+  print("\naverage score {round(average, 2)}, {urgent.len()} need follow-up")
+  print("used {usage().total_tokens} tokens in {usage().calls} calls")
+}

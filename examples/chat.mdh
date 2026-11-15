@@ -1,0 +1,16 @@
+// A terminal chatbot with memory and a typed "should we stop?" check.
+//
+//   medha run examples/chat.mdh --dry-run
+
+model claude = "anthropic:claude-opus-5-5"
+
+fn main() {
+  let bot = chat(claude, system: "You are a concise, friendly assistant.")
+  print("Say something (empty line to quit).")
+  while true {
+    let line = input("> ")
+    if line == null or line.trim() == "" { break }
+    print(bot.say(line))
+  }
+  print("{bot.history.len()} messages, {usage().total_tokens} tokens")
+}

@@ -1,0 +1,59 @@
+// An agent: a prompt that may call your functions until it has an answer.
+// Every function is a tool. Its doc comment and parameter types become the tool schema.
+//
+//   medha run examples/support_agent.mdh --dry-run --trace
+//   medha run examples/support_agent.mdh "Where is order 1002?"
+
+model claude = "anthropic:claude-opus-5-5" { effort: "medium" }
+
+type Order {
+  id: int
+  item: string
+  status: "processing" | "shipped" | "delivered"
+  total: float
+}
+
+let orders: [Order] = [
+  {id: 1001, item: "Trail shoes", status: "delivered", total: 129.0},
+  {id: 1002, item: "Rain jacket", status: "shipped", total: 89.5},
+]
+
+/// Look up one order by its numeric id. Returns null when there is no such order.
+fn find_order(id: int) -> Order? {
+  orders.find(o => o.id == id)
+}
+
+/// Start a refund for a delivered order. Fails for orders that have not arrived yet.
+fn refund(id: int, reason: string) -> string {
+  let order = find_order(id) ?? throw_missing(id)
+  if order.status != "delivered" {
+    throw error("NotRefundable", "order {id} is still {order.status}")
+  }
+  "refund of {order.total} started for order {id} ({reason})"
+}
+
+fn throw_missing(id) {
+  throw error("NotFound", "no order {id}")
+}
+
+type Resolution {
+  /// What to tell the customer, in two sentences at most.
+  reply: string
+  action: "answered" | "refunded" | "escalated"
+}
+
+agent support(message: string) -> Resolution using claude {
+  system """
+    You are a support agent for an outdoor gear shop.
+    Look orders up before answering. Never promise a refund you have not started.
+    """
+  tools [find_order, refund]
+  max_steps 6
+  message
+}
+
+fn main(args) {
+  let message = args.first() ?? "My trail shoes (order 1001) don't fit, I'd like my money back."
+  let r = support(message)
+  print("[{r.action}] {r.reply}")
+}

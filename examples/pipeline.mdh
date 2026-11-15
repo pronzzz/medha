@@ -1,0 +1,64 @@
+// A multi-step pipeline with a spending cap, graceful degradation and a second opinion.
+//
+//   medha run examples/pipeline.mdh --dry-run --trace
+
+model writer = "anthropic:claude-opus-5-5"
+model critic = "anthropic:claude-sonnet-5-5" { effort: "low" }
+
+type Outline {
+  title: string
+  sections: [string] where it.len() >= 2 and it.len() <= 5
+}
+
+type Verdict {
+  /// 1 to 10.
+  score: int where it >= 1 and it <= 10
+  problems: [string]
+}
+
+prompt outline(topic: string) -> Outline using writer {
+  "Outline a short explainer about: {topic}"
+}
+
+prompt draft(title: string, section: string) using writer {
+  system "Write one tight paragraph. No headings."
+  "Article: {title}\nSection: {section}"
+}
+
+prompt review(text: string) -> Verdict using critic {
+  system "You are a demanding editor."
+  "Review this draft:\n\n{text}"
+}
+
+prompt revise(text: string, problems: [string]) using writer {
+  "Rewrite the draft to fix these problems:"
+  for p in problems { "- {p}" }
+  "\nDraft:\n{text}"
+}
+
+fn write_article(topic: string) -> string {
+  let plan = outline(topic)
+  var body = plan.sections
+    |> pmap(s => draft(plan.title, s))
+    |> join("\n\n")
+
+  // One round of critique, but never at the cost of the whole run.
+  try {
+    budget(calls: 2) {
+      let verdict = review(body)
+      if verdict.score < 8 and verdict.problems.len() > 0 {
+        body = revise(body, verdict.problems)
+      }
+    }
+  } catch e {
+    eprint("skipping revision: {e.message}")
+  }
+  "# {plan.title}\n\n{body}"
+}
+
+fn main(args) {
+  budget(tokens: 60000) {
+    print(write_article(args.first() ?? "how vaccines train the immune system"))
+  }
+  eprint("\n{usage().calls} calls, {usage().total_tokens} tokens")
+}

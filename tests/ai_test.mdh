@@ -1,0 +1,218 @@
+// The AI features, tested offline: every model reply here is scripted.
+
+model m = "mock"
+model other = "mock"
+
+type Sentiment = "positive" | "negative" | "neutral"
+
+type Review {
+  sentiment: Sentiment
+  score: int where it >= 1 and it <= 5
+  topics: [string]
+}
+
+prompt analyze(text: string) -> Review using m {
+  system "You analyze product reviews."
+  "Review: {text}"
+}
+
+prompt summarize(text: string, words: int = 20) using m {
+  "Summarize in {words} words:"
+  text
+}
+
+prompt few_shot(text: string) -> Sentiment using m {
+  example "I love it" -> "positive"
+  example "Broke in a day" -> "negative"
+  text
+}
+
+/// Look up the current stock for a product.
+fn stock(sku: string) -> int {
+  match sku { "A1" -> 12, _ -> 0 }
+}
+
+/// Add two numbers.
+fn add(a: float, b: float) -> float => a + b
+
+agent shopkeeper(question: string) using m {
+  system "Answer using the tools."
+  tools [stock, add]
+  max_steps 4
+  question
+}
+
+agent typed_agent(question: string) -> {answer: int} using m {
+  tools [stock]
+  question
+}
+
+test "a typed prompt returns a validated value" {
+  mock m -> "\{\"sentiment\": \"negative\", \"score\": 2, \"topics\": [\"battery\"]\}"
+  let r = analyze("Battery died")
+  assert r.sentiment == "negative"
+  assert r.topics == ["battery"]
+  assert r is Review
+}
+
+test "invalid output is repaired by telling the model what was wrong" {
+  var seen = []
+  mock m -> "I think it is quite negative."
+  mock m -> {sentiment: "negative", score: 9, topics: []}
+  mock m -> fn(req) {
+    seen = req.messages
+    {sentiment: "Negative", score: "2", topics: []}
+  }
+  let r = analyze("Battery died")
+  assert r == {sentiment: "negative", score: 2, topics: []}
+  assert usage().calls == 3
+  assert seen.last().content.contains("does not satisfy `it >= 1 and it <= 5`")
+}
+
+test "giving up raises ModelOutputError with the raw reply" {
+  mock m -> "never json"
+  let e = assert_throws(() => analyze("x"), "ModelOutputError")
+  assert e.raw == "never json"
+  assert usage().calls == 3
+}
+
+test "mocking a prompt skips the model entirely" {
+  mock analyze -> {sentiment: "positive", score: 5, topics: ["speed"]}
+  assert analyze("fast!").score == 5
+  assert usage().calls == 0
+  mock analyze -> {sentiment: "meh", score: 5, topics: []}
+  assert_throws(() => analyze("x"), "ValidationError")
+}
+
+test "a prompt mock can be a function of the arguments" {
+  mock summarize -> (text, words) => "{words}:{text.upper()}"
+  assert summarize("hi") == "20:HI"
+  assert summarize("hi", words: 3) == "3:HI"
+}
+
+test "render shows exactly what would be sent" {
+  let r = analyze.render("Great phone")
+  assert r.model == "mock"
+  assert r.system.starts_with("You analyze product reviews.")
+  assert r.system.contains("JSON Schema")
+  assert r.messages == [{role: "user", content: "Review: Great phone"}]
+  let s = summarize.render("abc", 5)
+  assert s.messages[0].content == "Summarize in 5 words:\nabc"
+  assert s.system == ""
+}
+
+test "examples become few-shot turns" {
+  let msgs = few_shot.render("meh").messages
+  assert msgs.map(x => x.role) == ["user", "assistant", "user", "assistant", "user"]
+  assert msgs[1].content == "positive"
+  assert msgs.last().content == "meh"
+}
+
+test "an agent calls tools until it has an answer" {
+  var transcript = []
+  mock m -> {tool: "stock", args: {sku: "A1"}}
+  mock m -> [{tool: "add", args: {a: 12, b: "3"}}, {tool: "stock", args: {sku: "ZZ"}}]
+  mock m -> fn(req) {
+    transcript = req.messages
+    "We have 12 of A1 and 0 of ZZ."
+  }
+  assert shopkeeper("How many A1?") == "We have 12 of A1 and 0 of ZZ."
+  let results = transcript.filter(x => x.role == "tool").map(x => x.content)
+  assert results == ["12", "15.0", "0"]
+  assert usage().calls == 3
+}
+
+test "tool errors go back to the model instead of crashing" {
+  var last = ""
+  mock m -> {tool: "stock", args: {sku: [1, 2]}}
+  mock m -> {tool: "nope", args: {}}
+  mock m -> fn(req) { last = req.messages; "done" }
+  assert shopkeeper("?") == "done"
+  let results = last.filter(x => x.role == "tool").map(x => x.content)
+  assert results[0].starts_with("Error: invalid arguments")
+  assert results[1] == "Error: unknown tool 'nope'"
+}
+
+test "agents stop at max_steps" {
+  mock m -> {tool: "stock", args: {sku: "A1"}}
+  let e = assert_throws(() => shopkeeper("loop forever"), "StepLimit")
+  assert e.message.contains("4 tool steps")
+}
+
+test "agents can return typed answers" {
+  mock m -> {tool: "stock", args: {sku: "A1"}}
+  mock m -> {answer: 12}
+  assert typed_agent("stock of A1?").answer == 12
+}
+
+test "budgets cap calls and tokens" {
+  mock m -> "ok"
+  let e = assert_throws(() => {
+    budget(calls: 2) {
+      summarize("a")
+      summarize("b")
+      summarize("c")
+    }
+  }, "BudgetExceeded")
+  assert e.limit == "calls"
+  assert usage().calls == 2
+  let e2 = assert_throws(() => { budget(tokens: 5) { summarize("a long enough text to cost tokens") } })
+  assert e2.kind == "BudgetExceeded"
+  assert summarize("after the budget block") == "ok"
+}
+
+test "models are callable directly" {
+  mock m -> "pong"
+  assert m("ping") == "pong"
+  mock other -> {sentiment: "neutral", score: 3, topics: []}
+  assert other("classify this", Review).score == 3
+  mock other -> ["a", "b"]
+  assert other("list things", [string]) == ["a", "b"]
+}
+
+test "chat keeps history across turns" {
+  let c = chat(m, system: "Be brief.")
+  mock m -> "Hello!"
+  mock m -> fn(req) { "you said {req.messages.len()} things" }
+  assert c.say("hi") == "Hello!"
+  assert c.say("again") == "you said 3 things"
+  assert c.history.map(x => x.role) == ["user", "assistant", "user", "assistant"]
+}
+
+test "the unscripted mock provider invents schema-valid values" {
+  let r = analyze("anything")
+  assert r is Review
+  assert summarize("some text").starts_with("[mock reply to:")
+}
+
+test "cache: true answers repeated calls once" {
+  let cached = model("mock", cache: true)
+  mock cached -> fn(req) { "reply {usage().calls}" }
+  let a = cached("same question")
+  let b = cached("same question")
+  let c = cached("different question")
+  assert a == b and a != c
+  assert usage().calls == 2
+}
+
+test "pmap fans out calls concurrently and keeps order" {
+  mock summarize -> (text, words) => text.upper()
+  assert (["a", "b", "c", "d"] |> pmap(summarize)) == ["A", "B", "C", "D"]
+}
+
+test "embeddings and cosine similarity work offline" {
+  let [a, b, c] = embed(["refund my order", "I want a refund for the order", "weather in Paris"], m)
+  assert cosine(a, b) > cosine(a, c)
+  assert embed("solo", m).len() == 256
+}
+
+test "prompts and agents can be tools of other agents" {
+  agent boss(task: string) using other {
+    tools [summarize]
+    task
+  }
+  mock other -> {tool: "summarize", args: {text: "long text"}}
+  mock other -> "delegated"
+  mock m -> "short"
+  assert boss("do it") == "delegated"
+}

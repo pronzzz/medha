@@ -1,0 +1,54 @@
+// Structured extraction: turn messy text into data you can trust.
+// The model's reply is validated against the type; on a mismatch Medha tells the
+// model exactly what was wrong and asks again.
+//
+//   medha run examples/extract.mdh --dry-run
+
+model claude = "anthropic:claude-opus-5-5"
+
+type Money {
+  amount: float where it >= 0
+  currency: string where it.len() == 3
+}
+
+type LineItem {
+  description: string
+  quantity: int where it > 0
+  unit_price: Money
+}
+
+type Invoice {
+  vendor: string
+  /// ISO 8601 date, e.g. 2026-03-14.
+  date: string where it.matches(r"^\d{4}-\d{2}-\d{2}$")
+  items: [LineItem] where it.len() > 0
+  total: Money
+  notes: string?
+}
+
+prompt extract_invoice(text: string) -> Invoice using claude with { retries: 3 } {
+  system "Extract invoice data exactly as written. Do not guess missing values."
+  text
+}
+
+let email = """
+  Hi — invoice from Northwind Supplies, dated March 14th 2026.
+  3 x ergonomic keyboards at 79 USD each, and 1 x monitor arm for 120 USD.
+  Total comes to 357 USD. Net 30.
+  """
+
+fn main() {
+  let inv = extract_invoice(email)
+  print("{inv.vendor} — {inv.date}")
+  for item in inv.items {
+    print("  {item.quantity} x {item.description} @ {item.unit_price.amount} {item.unit_price.currency}")
+  }
+
+  // Ordinary code checks what a model cannot be trusted with: arithmetic.
+  let computed = inv.items.map(i => i.quantity * i.unit_price.amount).sum()
+  if abs(computed - inv.total.amount) > 0.01 {
+    print("warning: items add up to {computed}, invoice says {inv.total.amount}")
+  } else {
+    print("total {inv.total.amount} {inv.total.currency} checks out")
+  }
+}

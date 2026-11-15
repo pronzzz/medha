@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 140" width="520" height="140" role="img" aria-label="Medha">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7C5CFF"/>
+      <stop offset="1" stop-color="#19C3B1"/>
+    </linearGradient>
+  </defs>
+  <rect x="10" y="20" width="100" height="100" rx="24" fill="url(#g)"/>
+  <path d="M34 92 V48 l26 30 26 -30 v44" fill="none" stroke="#fff" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="60" cy="78" r="5.5" fill="#fff"/>
+  <text x="136" y="84" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="58" font-weight="700" fill="#7C5CFF" letter-spacing="-1">medha</text>
+  <text x="139" y="112" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#8A8F98">a programming language for AI programs</text>
+</svg>
